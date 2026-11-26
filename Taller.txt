@@ -1,0 +1,455 @@
+### A Pluto.jl notebook ###
+# v0.20.4
+
+using Markdown
+using InteractiveUtils
+
+# ╔═╡ 10000000-0000-0000-0000-000000000001
+md"""
+# Capítulo 5 (FNC) — Teoría Completa, Criterios de Diagnóstico y Soluciones en Julia
+**Referencia:** *Fundamentals of Numerical Computation* (Driscoll & Braun) — Secciones 5.2 a 5.6.  
+**Puntos desarrollados:** `5.2.1`, `5.4.2 (b)`, `5.4.3`, `5.4.4`, `5.4.5`, `5.5.1`, `5.6.1` y `5.6.7`.
+"""
+
+# ╔═╡ 10000000-0000-0000-0000-000000000002
+begin
+	using Plots
+	using LinearAlgebra
+end
+
+# ╔═╡ 10000000-0000-0000-0000-000000000003
+md"""
+---
+# 0. Compendio Teórico y Reglas de Diagnóstico (Estilo Taller Sanjuán)
+
+### 0.1 Tabla Maestra de Métodos, Órdenes de Error e Hipótesis de Regularidad
+Sea $[a,b]$ dividido en $n$ subintervalos de ancho $h = \frac{b-a}{n}$ con nodos $t_k = a + kh$ ($k=0,\dots,n$):
+
+| Método / Fórmula | Definición / Pesos clave | Término Principal del Error | Orden en $h$ y en $n$ | Regularidad Exigida |
+| :--- | :--- | :--- | :--- | :--- |
+| **Interpolación lineal a trozos** ($p(x)$) | $p(x) = \sum_{k=0}^n f(t_k) H_k(x)$ | $\|f - p\|_\infty \le \frac{h^2}{8}\|f''\|_\infty$ | $O(h^2) = O(n^{-2})$ | $f \in C^2([a,b])$ |
+| **Dif. finita hacia adelante ($O(h)$)** | $f'(x) \approx \frac{-f(x)+f(x+h)}{h}$ | $-\frac{h}{2}f''(\xi)$ | $O(h^1)$ | $f \in C^2$ |
+| **Dif. finita hacia adelante ($O(h^2)$)** | $f'(x) \approx \frac{-3f(x)+4f(x+h)-f(x+2h)}{2h}$ | $+\frac{h^2}{3}f'''(\xi)$ | $O(h^2)$ | $f \in C^3$ |
+| **Dif. finita hacia atrás ($O(h^2)$)** | $f'(x) \approx \frac{f(x-2h)-4f(x-h)+3f(x)}{2h}$ | $+\frac{h^2}{3}f'''(\xi)$ | $O(h^2)$ | $f \in C^3$ |
+| **Dif. finita centrada ($O(h^2)$)** | $f'(x) \approx \frac{f(x+h)-f(x-h)}{2h}$ | $-\frac{h^2}{6}f'''(\xi)$ | $O(h^2)$ | $f \in C^3$ |
+| **Dif. finita centrada 2.ª der. ($O(h^2)$)** | $f''(x) \approx \frac{f(x-h)-2f(x)+f(x+h)}{h^2}$ | $-\frac{h^2}{12}f^{(4)}(\xi)$ | $O(h^2)$ | $f \in C^4$ |
+| **Dif. finita centrada ($O(h^4)$, 5 nodos)** | $f'(x) \approx \frac{-f(x+2h)+8f(x+h)-8f(x-h)+f(x-2h)}{12h}$ | $+\frac{h^4}{30}f^{(5)}(\xi)$ | $O(h^4)$ | $f \in C^5$ |
+| **Regla Compuesta del Trapecio** ($T_n$) | $h\left[\frac{1}{2}f(t_0) + \sum_{k=1}^{n-1}f(t_k) + \frac{1}{2}f(t_n)\right]$ | $-\frac{h^2}{12}(f'(b)-f'(a)) + O(h^4)$ | $O(h^2) = O(n^{-2})$ | $f \in C^2([a,b])$ |
+| **Regla Compuesta de Simpson** ($S_n$, $n$ par) | $\frac{h}{3}\left[f(t_0) + 4\sum_{\text{imp}}f(t_k) + 2\sum_{\text{par}}f(t_k) + f(t_n)\right]$ | $-\frac{(b-a)}{180}h^4 f^{(4)}(\xi)$ | $O(h^4) = O(n^{-4})$ | $f \in C^4([a,b])$ |
+
+---
+
+### 0.2 Criterios de Diagnóstico para el Taller
+1. **Lectura de pendientes en gráficas $\log\text{-}\log$:**
+   * Si el eje horizontal es **$n$** (subintervalos), $E(n) \approx C n^{-p} \implies \log_{10} E \approx \log_{10} C - p\log_{10} n \implies$ **pendiente negativa $-p$**. Al duplicar $n$, el error se divide entre $2^p$ (factor $4$ en Trapecio/interpolación lineal; factor $16$ en Simpson).
+   * Si el eje horizontal es **$h$** (tamaño de paso), $E(h) \approx C h^{p} \implies \log_{10} E \approx \log_{10} C + p\log_{10} h \implies$ **pendiente positiva $+p$** en la zona dominada por truncamiento.
+2. **Condicionamiento vs. Inestabilidad en Diferenciación Numérica:**
+   * Diferenciar numéricamente es un problema **intrínsecamente mal condicionado** cuando $h \to 0$: al dividir por $h^m$, cualquier error de redondeo $\delta \sim \epsilon_{\text{maq}}$ en $f(x)$ se amplifica como $O(\epsilon_{\text{maq}} / h^m)$ (**cancelación sustractiva** al restar valores casi iguales).
+   * El error total sigue $E(h) \approx C_1 h^p + C_2 \epsilon_{\text{maq}} h^{-m}$. Minimizando respecto a $h$ ($E'(h)=0$):
+     $$h_{\text{opt}} \sim \epsilon_{\text{maq}}^{\frac{1}{p+m}}$$
+     Para $m=1$ en `Float64` ($\epsilon_{\text{maq}} \approx 2.22\times 10^{-16}$): si $p=2 \implies h_{\text{opt}} \approx 6\times 10^{-6}$; si $p=4 \implies h_{\text{opt}} \approx 7\times 10^{-4}$. En escala $\log\text{-}\log$ respecto a $h$, la curva tiene forma de **"V"**: baja con pendiente $+p$ hasta $h_{\text{opt}}$ y luego sube con pendiente $-m$ (por ejemplo, $-1$ para primera derivada).
+3. **Por qué falla el orden teórico en la práctica (3 causas típicas de parcial):**
+   * **Submuestreo (régimen pre-asintótico):** Si $f$ oscila rápido ($\|f''\|_\infty$ grande), para $n$ pequeño el paso $h$ es mayor que media longitud de onda y el error se estanca en $O(1)$ hasta que $h$ resuelve la frecuencia local.
+   * **Falta de regularidad en los extremos ($f \notin C^k$):** Si una derivada explota en $a$ o $b$ (ej. $\sqrt{x}$ en $x=0$, donde $f'(x) \sim x^{-1/2} \to \infty$), el error local en el primer subintervalo $[0, h]$ es $O(h^{3/2})$ y domina toda la suma, degradando **tanto al Trapecio como a Simpson** al mismo orden $O(n^{-3/2})$. **Solución:** eliminar la singularidad con un cambio de variable (ej. $x = u^2 \implies dx = 2u\,du$).
+   * **Piso de redondeo de máquina:** En cuadratura de orden alto (Simpson, $O(n^{-4})$), el error cae tan rápido que pronto alcanza $\sim 10^{-15}$ (`Float64`), donde deja de bajar porque domina la acumulación de errores de punto flotante.
+4. **Cálculo de pesos de diferencias finitas por coeficientes indeterminados (a mano):**
+   * Para aproximar $f^{(m)}(x_0) \approx \sum_{k=1}^r w_k f(t_k)$, se exige exactitud sobre la base monomial $\{1, (x-x_0), (x-x_0)^2, \dots, (x-x_0)^{r-1}\}$:
+     $$\sum_{k=1}^r w_k (t_k - x_0)^j = \begin{cases} m!, & \text{si } j = m \\ 0, & \text{si } j \neq m \end{cases} \qquad (j = 0, 1, \dots, r-1)$$
+   * El **término principal del error** se obtiene evaluando el primer monomio no exacto $p(x) = \frac{(x-x_0)^r}{r!}$:
+     $$E_{\text{trunc}} = \left( p^{(m)}(x_0) - \sum_{k=1}^r w_k p(t_k) \right) f^{(r)}(\xi) = -\left(\sum_{k=1}^r w_k \frac{(t_k - x_0)^r}{r!}\right) f^{(r)}(\xi)$$
+"""
+
+# ╔═╡ 10000000-0000-0000-0000-000000000004
+md"""
+---
+## Funciones Base del Libro (Secciones 5.2 – 5.6)
+Definiciones literales de `hatfun` (Función 5.2.1), `plinterp` (Función 5.2.2), `fdweights` (Función 5.4.1), `trapezoid` (Función 5.5.1) y `simpson` (Función 5.6.1).
+"""
+
+# ╔═╡ 10000000-0000-0000-0000-000000000005
+begin
+	# Función 5.2.1: Función sombrero H_k(x) con soporte en [t_{k-1}, t_{k+1}]
+	function hatfun(t, k)
+		n = length(t) - 1
+		return function(x)
+			if k > 0 && t[k] <= x <= t[k+1]
+				return (x - t[k]) / (t[k+1] - t[k])
+			elseif k < n && t[k+1] <= x <= t[k+2]
+				return (t[k+2] - x) / (t[k+2] - t[k+1])
+			else
+				return 0.0
+			end
+		end
+	end
+
+	# Función 5.2.2: Interpolante lineal a trozos p(x) = ∑ y_k H_k(x)
+	function plinterp(t, y)
+		n = length(t) - 1
+		H = [hatfun(t, k) for k in 0:n]
+		return x -> sum(y[k+1] * H[k+1](x) for k in 0:n)
+	end
+
+	# Función 5.4.1: Pesos de diferencias finitas (Algoritmo recursivo de Fornberg)
+	function fdweights(t, m)
+		function weight(t, m, r, k)
+			if (m < 0) || (m > r)
+				c = zero(eltype(t))
+			elseif (m == 0) && (r == 0)
+				c = one(eltype(t))
+			else
+				if k < r
+					c = (t[r+1] * weight(t, m, r-1, k) - m * weight(t, m-1, r-1, k)) / (t[r+1] - t[k+1])
+				else
+					numer = r > 1 ? prod(t[r] - x for x in t[1:r-1]) : one(eltype(t))
+					denom = r > 0 ? prod(t[r+1] - x for x in t[1:r]) : one(eltype(t))
+					β = numer / denom
+					c = β * (m * weight(t, m-1, r-1, r-1) - t[r] * weight(t, m, r-1, r-1))
+				end
+			end
+			return c
+		end
+		r = length(t) - 1
+		return [weight(t, m, r, k) for k in 0:r]
+	end
+
+	# Función 5.5.1: Fórmula compuesta del trapecio
+	function trapezoid(f, a, b, n)
+		h = (b - a) / n
+		t = range(a, b, length = n + 1)
+		y = f.(t)
+		T = h * (sum(y[2:n]) + 0.5 * (y[1] + y[end]))
+		return t, y, T
+	end
+
+	# Función 5.6.1: Fórmula compuesta de Simpson (requiere n par)
+	function simpson(f, a, b, n)
+		@assert iseven(n) "n debe ser par para la regla de Simpson"
+		h = (b - a) / n
+		t = range(a, b, length = n + 1)
+		y = f.(t)
+		S = (h / 3) * (y[1] + 4 * sum(y[2:2:n]) + 2 * sum(y[3:2:n-1]) + y[end])
+		return t, y, S
+	end
+end
+
+# ╔═╡ 10000000-0000-0000-0000-000000000006
+md"""
+---
+## Ejercicio 5.2.1 — Convergencia de la Interpolación Lineal a Trozos
+
+### Fundamentación Teórica
+* **Propiedades de la base sombrero $\{H_k\}_{k=0}^n$:**
+  1. **Delta de Kronecker:** $H_k(t_j) = \delta_{kj}$ (vale $1$ en su nodo $t_k$ y $0$ en todos los demás nodos).
+  2. **Partición de la unidad:** $\sum_{k=0}^n H_k(x) \equiv 1$ para todo $x \in [a,b]$.
+  3. **Soporte compacto:** $H_k(x) = 0$ fuera de $[t_{k-1}, t_{k+1}]$, lo que implica que en cada subintervalo solo intervienen dos funciones base.
+* **Cota de error en norma infinito:** Si $f \in C^2([a,b])$, el error de interpolación lineal en $[t_{k-1}, t_k]$ es $f(x) - p(x) = \frac{1}{2}f''(\xi_x)(x-t_{k-1})(x-t_k)$. Como $\max |(x-t_{k-1})(x-t_k)| = \frac{h^2}{4}$:
+  $$E(n) = \|f - p\|_\infty \le \frac{h^2}{8}\|f''\|_\infty = \left(\frac{(b-a)^2}{8}\|f''\|_\infty\right) n^{-2}$$
+* **Veredicto esperado por inciso:**
+  * **(a) $\cos(\pi x^2)$ en $[0,4]$:** $f''(x) = -2\pi\sin(\pi x^2) - 4\pi^2 x^2\cos(\pi x^2)$, con $\|f''\|_\infty \approx 631.65$ cerca de $x=4$. Para $n=10, 20, 40$ sufre **submuestreo** (error estancado en $\approx 2$); a partir de $n \ge 80$ entra en régimen asintótico con pendiente $-2$.
+  * **(b) $\log(x)$ en $[1,20]$:** $|f''(x)| = 1/x^2 \le 1$ es suave y monótona; converge con pendiente $-2$ desde $n=10$.
+  * **(c) $\sin(1/x)$ en $[1/2, 7]$:** $|f''(x)|$ alcanza su máximo ($\approx 16$) cerca de $x=0.5$; tras un breve ajuste en $n=10$, sigue fielmente la pendiente $-2$.
+"""
+
+# ╔═╡ 10000000-0000-0000-0000-000000000007
+begin
+	n_521 = [10, 20, 40, 80, 160, 320, 640]
+	casos_521 = [
+		("(a) f(x) = cos(πx²) en [0, 4]",  x -> cos(pi * x^2), 0.0, 4.0),
+		("(b) f(x) = log(x) en [1, 20]",    x -> log(x),       1.0, 20.0),
+		("(c) f(x) = sin(1/x) en [1/2, 7]", x -> sin(1 / x),   0.5, 7.0)
+	]
+
+	errores_521 = Vector{Vector{Float64}}()
+	graficas_521 = map(casos_521) do (titulo, f, a, b)
+		x_eval = range(a, b, length = 1600)
+		f_exacta = f.(x_eval)
+
+		E = map(n_521) do n
+			t = range(a, b, length = n + 1)
+			p = plinterp(t, f.(t))
+			maximum(abs.(f_exacta .- p.(x_eval)))
+		end
+		push!(errores_521, E)
+
+		C = E[end] * n_521[end]^2
+		ref_line = C .* (Float64.(n_521) .^ (-2))
+
+		plt = plot(n_521, E,
+			xscale = :log10, yscale = :log10,
+			xticks = (n_521, string.(n_521)),
+			yticks = 10.0 .^ (-5:1:1),
+			minorgrid = false, marker = :o, lw = 2,
+			label = "Error E(n)", title = titulo,
+			xlabel = "n", ylabel = "||f - p||∞", legend = :bottomleft)
+		plot!(plt, n_521, ref_line, ls = :dash, lw = 1.5, color = :red, label = "C·n⁻²")
+	end
+
+	(
+		Tabla_n_Ea_Eb_Ec = hcat(n_521, errores_521[1], errores_521[2], errores_521[3]),
+		Graficas = plot(graficas_521..., layout = (3, 1), size = (650, 900))
+	)
+end
+
+# ╔═╡ 10000000-0000-0000-0000-000000000008
+md"""
+---
+## Ejercicio 5.4.2 (b) — Diferencias Finitas en Nodos No Equiespaciados y Esquemas Unilaterales
+
+### Derivación Teórica (Método de Coeficientes Indeterminados)
+1. **Caso nodos no equiespaciados $t = [-1, 0, 2]$ para $f'(0)$:**  
+   Imponemos exactitud de la fórmula $f'(0) \approx w_1 f(-1) + w_2 f(0) + w_3 f(2)$ sobre $\{1, x, x^2\}$:
+   $$\begin{cases}
+   j=0 \;(p(x)=1): & w_1 + w_2 + w_3 = 0 \\
+   j=1 \;(p(x)=x): & -w_1 + 2w_3 = 1 \\
+   j=2 \;(p(x)=x^2): & w_1 + 4w_3 = 0 \implies w_1 = -4w_3
+   \end{cases}$$
+   Resolviendo: $4w_3 + 2w_3 = 1 \implies w_3 = \frac{1}{6}$, $w_1 = -\frac{2}{3}$, $w_2 = \frac{1}{2}$.  
+   **Error de truncamiento** (evaluando en $p(x) = x^3/3!$):
+   $$E_{\text{trunc}} = -\left( w_1 \frac{(-1)^3}{6} + w_2 \cdot 0 + w_3 \frac{2^3}{6} \right) f'''(\xi) = -\left( \frac{2}{18} + \frac{8}{36} \right) f'''(\xi) = -\frac{1}{3}f'''(\xi)$$
+2. **Caso malla equiespaciada con bordes ($t = [0.9, 1.0, 1.1]$, $h=0.1$) para $f(x)=\sin(2x)$:**  
+   * En el borde izquierdo ($t_0 = 0.9$) se usa **diferencia hacia adelante $O(h^2)$**: $\frac{-3f(t_0)+4f(t_1)-f(t_2)}{2h}$.
+   * En el interior ($t_1 = 1.0$) se usa **diferencia centrada $O(h^2)$**: $\frac{-f(t_0)+f(t_2)}{2h}$ (la mitad de constante de error que los bordes).
+   * En el borde derecho ($t_2 = 1.1$) se usa **diferencia hacia atrás $O(h^2)$**: $\frac{f(t_0)-4f(t_1)+3f(t_2)}{2h}$ (se obtiene reflejando $g(x)=f(-x)$, lo que invierte el orden espacial de los nodos y cambia el signo de los pesos).
+"""
+
+# ╔═╡ 10000000-0000-0000-0000-000000000009
+begin
+	# 1. Verificación exacta en nodos no equiespaciados t = [-1, 0, 2]
+	t_no_eq = Rational{Int}.([-1, 0, 2])
+	w_no_eq = fdweights(t_no_eq, 1)
+	exactitud_p2 = [sum(w_no_eq .* (t_no_eq .^ p)) for p in 0:2] # [0, 1, 0]
+	error_en_x3 = 0 // 1 - sum(w_no_eq .* (t_no_eq .^ 3))         # -2 => (-1/3)*f'''(ξ)
+
+	# 2. Verificación en malla equiespaciada con bordes t = [0.9, 1.0, 1.1]
+	f_542(x) = sin(2x)
+	df_542(x) = 2cos(2x)
+	t_eq = [0.9, 1.0, 1.1]
+	y_eq = f_542.(t_eq)
+
+	aprox_bordes = [
+		sum(fdweights(t_eq .- 0.9, 1) .* y_eq), # Hacia adelante O(h^2)
+		sum(fdweights(t_eq .- 1.0, 1) .* y_eq), # Centrada O(h^2)
+		sum(fdweights(t_eq .- 1.1, 1) .* y_eq)  # Hacia atrás O(h^2)
+	]
+	exacta_bordes = df_542.(t_eq)
+
+	(
+		Pesos_NoEquiespaciados = w_no_eq,
+		Prueba_Monomios_1_x_x2 = exactitud_p2,
+		Error_x3 = error_en_x3,
+		Tabla_Nodos_Aprox_Exacta_Err = hcat(t_eq, aprox_bordes, exacta_bordes, abs.(aprox_bordes .- exacta_bordes))
+	)
+end
+
+# ╔═╡ 10000000-0000-0000-0000-000000000010
+md"""
+---
+## Ejercicio 5.4.3 — Derivadas de Orden Superior con `fdweights`
+
+### Análisis Teórico
+Con $r+1 = 5$ nodos simétricos $t = x + h(-2:2)$ ($x = 0.5$, $h = 0.2$), el polinomio interpolador tiene grado $4$:
+* **Invariancia por traslación:** Pasar `t .- x` a `fdweights` entrega directamente los pesos $w_k$ con el factor $h^{-m}$ ya incorporado, de modo que $f^{(m)}(x) \approx \sum_{k=1}^5 w_k f(t_k)$.
+* **Salto en el orden de precisión:** Para $m = 1$ y $m = 2$, la simetría de los nodos anula el término impar de Taylor y la aproximación alcanza orden **$O(h^4)$** (errores $\sim 10^{-5}$). Para $m = 3$ y $m = 4$, se agotan los grados de libertad de los 5 nodos y el orden cae a **$O(h^2)$** (errores $\sim 10^{-3}$, unas 50 veces mayores).
+"""
+
+# ╔═╡ 10000000-0000-0000-0000-000000000011
+begin
+	f_543(x) = exp(-x)
+	x_543 = 0.5
+	h_543 = 0.2
+	t_543 = x_543 .+ h_543 .* (-2:2)
+	y_543 = f_543.(t_543)
+
+	aprox_543 = [sum(fdweights(t_543 .- x_543, m) .* y_543) for m in 1:4]
+	exact_543 = [(-1)^m * exp(-x_543) for m in 1:4]
+	error_543 = abs.(aprox_543 .- exact_543)
+
+	# Columnas: [m, Aproximación, Valor_Exacto, Error_Absoluto]
+	hcat(1:4, aprox_543, exact_543, error_543)
+end
+
+# ╔═╡ 10000000-0000-0000-0000-000000000012
+md"""
+---
+## Ejercicio 5.4.4 — Fórmulas Unilaterales (Hacia Adelante) mediante `fdweights`
+
+### Fundamentación Teórica
+Con $r+1$ nodos unilaterales $t = [0, 1, \dots, r]$, el orden de precisión general para la derivada $m$-ésima es **$p = (r + 1) - m$**:
+* Para $m=1$: 2 nodos $\to O(h)$; 3 nodos $\to O(h^2)$; 4 nodos $\to O(h^3)$.
+* Para $m=2$: 3 nodos $\to O(h)$; 4 nodos $\to O(h^2)$.  
+Pasando nodos de tipo `Rational{Int}` a `fdweights`, Julia ejecuta exactamente el algoritmo de Fornberg sin redondeo de punto flotante y devuelve los coeficientes fraccionarios de la Tabla 5.4.2 del libro.
+"""
+
+# ╔═╡ 10000000-0000-0000-0000-000000000013
+begin
+	(
+		f_prima_2nodos_Oh    = fdweights(Rational{Int}.(0:1), 1), # [-1, 1]
+		f_prima_3nodos_Oh2   = fdweights(Rational{Int}.(0:2), 1), # [-3/2, 2, -1/2]
+		f_prima_4nodos_Oh3   = fdweights(Rational{Int}.(0:3), 1), # [-11/6, 3, -3/2, 1/3]
+		f_segunda_3nodos_Oh  = fdweights(Rational{Int}.(0:2), 2), # [1, -2, 1]
+		f_segunda_4nodos_Oh2 = fdweights(Rational{Int}.(0:3), 2)  # [2, -5, 4, -1]
+	)
+end
+
+# ╔═╡ 10000000-0000-0000-0000-000000000014
+md"""
+---
+## Ejercicio 5.4.5 — Cancelación Sustractiva y Paso Óptimo $h_{\text{opt}}$
+
+### Fundamentación Teórica
+Al aproximar $f'(x_0)$ en aritmética `Float64` ($\epsilon_{\text{maq}} \approx 2.22 \times 10^{-16}$), el error total suma dos efectos opuestos:
+$$E(h) \approx \underbrace{C_1 h^p}_{\text{Truncamiento}} + \underbrace{\frac{C_2 \epsilon_{\text{maq}}}{h}}_{\text{Redondeo}}$$
+* Para $h > h_{\text{opt}}$, domina el **truncamiento**: en escala $\log\text{-}\log$ el error cae con pendiente **$+p$** ($+2$ o $+4$).
+* Para $h < h_{\text{opt}}$, restar $f(x_0+h) - f(x_0-h)$ produce **cancelación sustractiva** y dividir por $h$ amplifica el ruido como $h^{-1}$ (pendiente **$-1$**).
+* El mínimo ocurre en $h_{\text{opt}} \sim \epsilon_{\text{maq}}^{\frac{1}{p+1}}$: cuanto mayor es el orden $p$ del esquema, **mayor** es el paso óptimo $h_{\text{opt}}$ y **menor** el error mínimo alcanzable.
+"""
+
+# ╔═╡ 10000000-0000-0000-0000-000000000015
+begin
+	f_545(x) = sin(x^2)
+	df_545(x) = 2x * cos(x^2)
+	x0_545 = 1.0
+
+	h_545 = 10.0 .^ range(-16, 0, length = 200)
+	err_o2 = [abs((f_545(x0_545 + h) - f_545(x0_545 - h)) / (2h) - df_545(x0_545)) for h in h_545]
+	err_o4 = [abs((-f_545(x0_545 + 2h) + 8f_545(x0_545 + h) - 8f_545(x0_545 - h) + f_545(x0_545 - 2h)) / (12h) - df_545(x0_545)) for h in h_545]
+
+	plt_545 = plot(h_545, err_o2,
+		xscale = :log10, yscale = :log10,
+		xticks = 10.0 .^ (-16:2:0), yticks = 10.0 .^ (-14:2:0),
+		minorgrid = false, lw = 2,
+		label = "Orden 2 (pendiente +2 / -1)",
+		xlabel = "Tamaño de paso h", ylabel = "Error absoluto",
+		title = "Truncamiento vs. Redondeo (FNC 5.4.5)", legend = :bottomright)
+	plot!(plt_545, h_545, err_o4, lw = 2, label = "Orden 4 (pendiente +4 / -1)")
+end
+
+# ╔═╡ 10000000-0000-0000-0000-000000000016
+md"""
+---
+## Ejercicio 5.5.1 — Fórmula Compuesta del Trapecio y Euler–Maclaurin ($O(n^{-2})$)
+
+### Fundamentación Teórica
+La regla compuesta del trapecio integra el interpolante lineal a trozos sobre $[a,b]$:
+$$T_n(f) = \int_a^b p(x)\,dx = h\left[\frac{1}{2}f(t_0) + \sum_{k=1}^{n-1} f(t_k) + \frac{1}{2}f(t_n)\right]$$
+Por la **fórmula de Euler–Maclaurin**, si $f \in C^2([a,b])$:
+$$I(f) - T_n(f) = -\frac{h^2}{12}\bigl(f'(b) - f'(a)\bigr) + O(h^4) = O(n^{-2})$$
+**Corolario importante para parciales:** Si $f$ es suave y periódica en $[a,b]$ tal que $f'(a) = f'(b)$, el término principal $O(h^2)$ se anula automáticamente y el trapecio alcanza convergencia de orden superior ($O(h^4)$ o exponencial).
+"""
+
+# ╔═╡ 10000000-0000-0000-0000-000000000017
+begin
+	f_551(x) = exp(x) * cos(x)
+	I_551 = 0.5 * (exp(2.0) * (sin(2.0) + cos(2.0)) - 1.0)
+
+	n_551 = [10, 20, 40, 80, 160, 320, 640]
+	err_551 = [abs(I_551 - trapezoid(f_551, 0.0, 2.0, n)[3]) for n in n_551]
+
+	C_551 = err_551[end] * n_551[end]^2
+	plt_551 = plot(n_551, err_551,
+		xscale = :log10, yscale = :log10,
+		xticks = (n_551, string.(n_551)), yticks = 10.0 .^ (-6:1:0),
+		minorgrid = false, marker = :o, lw = 2,
+		label = "Error Trapecio |I - Tₙ|",
+		xlabel = "n (subintervalos)", ylabel = "Error absoluto",
+		title = "Regla Compuesta del Trapecio (FNC 5.5.1)", legend = :bottomleft)
+	plot!(plt_551, n_551, C_551 .* Float64.(n_551) .^ (-2), ls = :dash, color = :red, label = "Referencia O(n⁻²)")
+
+	(Tabla_n_Error = hcat(n_551, err_551), Grafica = plt_551)
+end
+
+# ╔═╡ 10000000-0000-0000-0000-000000000018
+md"""
+---
+## Ejercicio 5.6.1 — Fórmula Compuesta de Simpson ($O(n^{-4})$)
+
+### Fundamentación Teórica
+Con un número **par** $n$ de subintervalos, Simpson ajusta una parábola interpolante en cada par $[t_{2k-2}, t_{2k}]$:
+$$S_n(f) = \frac{h}{3}\left[f(t_0) + 4\sum_{k=1}^{n/2} f(t_{2k-1}) + 2\sum_{k=1}^{n/2 - 1} f(t_{2k}) + f(t_n)\right]$$
+* **Grado de exactitud $3$:** Aunque interpola parábolas (grado 2), por simetría el error sobre polinomios cúbicos se cancela exactamente, otorgando **orden global 4**:
+  $$I(f) - S_n(f) = -\frac{(b-a)}{180} h^4 f^{(4)}(\xi) = O(n^{-4})$$
+* **Extrapolación de Richardson:** $S_n(f) = \frac{4 T_n(f) - T_{n/2}(f)}{3}$, es decir, Simpson equivale a aplicar un paso de extrapolación de Richardson sobre el Trapecio para eliminar el término $O(h^2)$.
+"""
+
+# ╔═╡ 10000000-0000-0000-0000-000000000019
+begin
+	n_561 = [10, 20, 40, 80, 160, 320]
+	err_561 = [abs(I_551 - simpson(f_551, 0.0, 2.0, n)[3]) for n in n_561]
+
+	C_561 = err_561[end] * n_561[end]^4
+	plt_561 = plot(n_561, err_561,
+		xscale = :log10, yscale = :log10,
+		xticks = (n_561, string.(n_561)), yticks = 10.0 .^ (-11:2:-1),
+		minorgrid = false, marker = :o, lw = 2,
+		label = "Error Simpson |I - Sₙ|",
+		xlabel = "n (subintervalos pares)", ylabel = "Error absoluto",
+		title = "Regla Compuesta de Simpson (FNC 5.6.1)", legend = :bottomleft)
+	plot!(plt_561, n_561, C_561 .* Float64.(n_561) .^ (-4), ls = :dash, color = :red, label = "Referencia O(n⁻⁴)")
+
+	(Tabla_n_Error = hcat(n_561, err_561), Grafica = plt_561)
+end
+
+# ╔═╡ 10000000-0000-0000-0000-000000000020
+md"""
+---
+## Ejercicio 5.6.7 — Integrandos con Derivada Singular en un Extremo
+
+### Diagnóstico Teórico y Veredicto Modelo
+Consideramos $\int_0^1 \sqrt{x}\,dx = \frac{2}{3}$:
+1. **Violación de hipótesis de regularidad:** Aunque $f(x) = x^{1/2}$ es continua en $[0,1]$, $f'(x) = \frac{1}{2}x^{-1/2} \to +\infty$ y $f''(x) = -\frac{1}{4}x^{-3/2} \to -\infty$ cuando $x \to 0^+$. Por tanto, $f \notin C^2([0,1])$ y **no aplican las cotas $O(n^{-2})$ ni $O(n^{-4})$**.
+2. **Degradación de orden a $O(n^{-3/2})$:** En el primer subintervalo $[0, h]$, la integral exacta vale $\int_0^h \sqrt{x}\,dx = \frac{2}{3}h^{3/2}$, mientras que el trapecio aproxima $\frac{1}{2}h\sqrt{h} = \frac{1}{2}h^{3/2}$. El error local $\frac{1}{6}h^{3/2}$ en ese único subintervalo domina la suma total, haciendo que **tanto Trapecio como Simpson converjan exactamente con pendiente $-1.5$ ($O(n^{-3/2})$)**.
+3. **Remedio analítico (Cambio de variable):** Sustituyendo $x = u^2$ ($dx = 2u\,du$), la integral se transforma en $\int_0^1 2u^2\,du$, cuyo integrando es un polinomio suave ($C^\infty([0,1])$) y Simpson recupera exactitud de precisión de máquina ($\sim 10^{-16}$) desde el primer paso.
+"""
+
+# ╔═╡ 10000000-0000-0000-0000-000000000021
+begin
+	f_567(x) = sqrt(x)
+	I_567 = 2 / 3
+	n_567 = [16, 32, 64, 128, 256, 512, 1024]
+
+	err_T_567 = [abs(I_567 - trapezoid(f_567, 0.0, 1.0, n)[3]) for n in n_567]
+	err_S_567 = [abs(I_567 - simpson(f_567, 0.0, 1.0, n)[3]) for n in n_567]
+
+	# Cambio de variable x = u^2 => dx = 2u du => ∫₀¹ 2u² du
+	g_567(u) = 2 * u^2
+	err_S_suave_567 = [abs(I_567 - simpson(g_567, 0.0, 1.0, n)[3]) for n in n_567]
+
+	C_567 = err_T_567[end] * n_567[end]^(1.5)
+	plt_567 = plot(n_567, err_T_567,
+		xscale = :log10, yscale = :log10,
+		xticks = (n_567, string.(n_567)), yticks = 10.0 .^ (-6:1:-1),
+		minorgrid = false, marker = :o, lw = 2,
+		label = "Trapecio en √x",
+		xlabel = "n", ylabel = "Error absoluto",
+		title = "Degradación por Singularidad en x=0 (FNC 5.6.7)", legend = :bottomleft)
+	plot!(plt_567, n_567, err_S_567, marker = :square, lw = 2, label = "Simpson en √x")
+	plot!(plt_567, n_567, C_567 .* Float64.(n_567) .^ (-1.5), ls = :dash, color = :black, label = "Referencia O(n⁻³/²)")
+
+	(
+		Tabla_n_ErrTrap_ErrSimp_ErrCambioVar = hcat(n_567, err_T_567, err_S_567, err_S_suave_567),
+		Grafica = plt_567
+	)
+end
+
+# ╔═╡ Cell order:
+# ╟─10000000-0000-0000-0000-000000000001
+# ╠═10000000-0000-0000-0000-000000000002
+# ╟─10000000-0000-0000-0000-000000000003
+# ╟─10000000-0000-0000-0000-000000000004
+# ╠═10000000-0000-0000-0000-000000000005
+# ╟─10000000-0000-0000-0000-000000000006
+# ╠═10000000-0000-0000-0000-000000000007
+# ╟─10000000-0000-0000-0000-000000000008
+# ╠═10000000-0000-0000-0000-000000000009
+# ╟─10000000-0000-0000-0000-000000000010
+# ╠═10000000-0000-0000-0000-000000000011
+# ╟─10000000-0000-0000-0000-000000000012
+# ╠═10000000-0000-0000-0000-000000000013
+# ╟─10000000-0000-0000-0000-000000000014
+# ╠═10000000-0000-0000-0000-000000000015
+# ╟─10000000-0000-0000-0000-000000000016
+# ╠═10000000-0000-0000-0000-000000000017
+# ╟─10000000-0000-0000-0000-000000000018
+# ╠═10000000-0000-0000-0000-000000000019
+# ╟─10000000-0000-0000-0000-000000000020
+# ╠═10000000-0000-0000-0000-000000000021
